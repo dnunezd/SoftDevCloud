@@ -1,0 +1,571 @@
+openapi: 3.0.3
+info:
+  title: Seguimiento de monitores y asistentes graduados - API
+  version: 0.1.0
+  description: |
+    ## Autenticación
+    `POST /api/v1/auth/login` devuelve un `access_token`. Las demás operaciones
+    requieren la cabecera `Authorization: Bearer <access_token>`.
+
+    ## Errores
+    Las respuestas de error tienen la forma
+    `{"error": {"code": "...", "message": "...", "details": {...}}}`.
+    `details` solo aparece en los errores de validación (422).
+
+    Todas las respuestas incluyen la cabecera `X-Request-ID`.
+servers:
+  - url: http://localhost:8080
+    description: Local
+tags:
+  - name: Salud
+    description: Estado del servicio.
+  - name: Autenticación
+    description: Inicio y cierre de sesión.
+  - name: Usuarios
+    description: Gestión de usuarios.
+  - name: Sesiones
+    description: Gestión de sesiones de usuarios.
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Salud]
+      operationId: healthCheck
+      summary: Estado del servicio
+      security: []
+      responses:
+        "200":
+          description: El servicio está disponible.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+              example:
+                status: ok
+
+  /api/v1/auth/login:
+    post:
+      tags: [Autenticación]
+      operationId: login
+      summary: Iniciar sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            example:
+              email: usuario@example.com
+              password: "<contraseña>"
+      responses:
+        "200":
+          description: Sesión iniciada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Credenciales inválidas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: invalid_credentials
+                  message: credenciales inválidas
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Autenticación]
+      operationId: logout
+      summary: Cerrar la sesión actual
+      description: Invalida el token usado en la petición.
+      responses:
+        "204":
+          description: Sesión cerrada.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/me:
+    get:
+      tags: [Autenticación]
+      operationId: getMe
+      summary: Usuario autenticado
+      responses:
+        "200":
+          description: Usuario autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/users:
+    post:
+      tags: [Usuarios]
+      operationId: createUser
+      summary: Crear usuario
+      description: Requiere rol ADMIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+            example:
+              full_name: Ana Pérez
+              email: ana.perez@example.com
+              password: "<contraseña>"
+              roles: [MONITOR, ASISTENTE_GRADUADO]
+      responses:
+        "201":
+          description: Usuario creado.
+          headers:
+            Location:
+              description: Ruta del usuario creado.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: El correo ya está registrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: email_already_exists
+                  message: ya existe un usuario con ese correo
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      tags: [Usuarios]
+      operationId: listUsers
+      summary: Listar usuarios
+      description: Requiere rol ADMIN.
+      parameters:
+        - name: role
+          in: query
+          description: Filtra por rol.
+          schema:
+            $ref: "#/components/schemas/Role"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Página de usuarios.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Usuarios]
+      operationId: getUser
+      summary: Consultar usuario
+      description: Requiere rol ADMIN.
+      responses:
+        "200":
+          description: Usuario.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/UserNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/users/{id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    put:
+      tags: [Usuarios]
+      operationId: setUserRoles
+      summary: Reemplazar roles del usuario
+      description: Requiere rol ADMIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRolesRequest"
+            example:
+              roles: [PROFESOR, MONITOR]
+      responses:
+        "200":
+          description: Usuario actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/UserNotFound"
+        "409":
+          description: El usuario es el único administrador y no se le puede quitar el rol ADMIN.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: last_admin
+                  message: no se puede quitar el rol ADMIN al último administrador
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/users/{id}/sessions:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Sesiones]
+      operationId: listUserSessions
+      summary: Listar sesiones activas del usuario
+      description: Requiere rol ADMIN.
+      responses:
+        "200":
+          description: Sesiones activas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/UserNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Sesiones]
+      operationId: revokeUserSessions
+      summary: Cerrar todas las sesiones del usuario
+      description: Requiere rol ADMIN.
+      responses:
+        "200":
+          description: Sesiones cerradas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokeSessionsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/UserNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Role:
+      type: string
+      enum: [ADMIN, PROFESOR, MONITOR, ASISTENTE_GRADUADO]
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    LoginResponse:
+      type: object
+      required: [access_token, token_type, expires_at, user]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      required: [id, full_name, email, roles, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+          example: Ana Pérez
+        email:
+          type: string
+          format: email
+          example: ana.perez@example.com
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+        created_at:
+          type: string
+          format: date-time
+
+    CreateUserRequest:
+      type: object
+      required: [full_name, email, password, roles]
+      properties:
+        full_name:
+          type: string
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: Máximo 72 bytes.
+        roles:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Role"
+
+    SetRolesRequest:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Role"
+
+    UserList:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    Session:
+      type: object
+      required: [id, user_agent, ip, created_at, expires_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_agent:
+          type: string
+          maxLength: 255
+        ip:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    SessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+
+    RevokeSessionsResponse:
+      type: object
+      required: [revoked]
+      properties:
+        revoked:
+          type: integer
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                type: string
+
+  responses:
+    BadRequest:
+      description: Petición mal formada.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: invalid_request
+              message: la petición está mal formada
+    Unauthorized:
+      description: Sin token, token inválido o sesión cerrada.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            sinToken:
+              summary: Sin token o token inválido
+              value:
+                error:
+                  code: unauthenticated
+                  message: se requiere autenticación
+            sesionCerrada:
+              summary: Sesión cerrada o vencida
+              value:
+                error:
+                  code: session_revoked
+                  message: la sesión fue cerrada o venció; inicie sesión de nuevo
+    Forbidden:
+      description: Rol insuficiente.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: forbidden
+              message: no tiene permisos para esta operación
+    UserNotFound:
+      description: Usuario no encontrado.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: user_not_found
+              message: el usuario no existe
+    ValidationFailed:
+      description: Datos inválidos.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: validation_failed
+              message: los datos enviados no son válidos
+              details:
+                email: no tiene un formato válido
+                password: debe tener al menos 8 caracteres
+    InternalError:
+      description: Error interno.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: internal_error
+              message: error interno del servidor

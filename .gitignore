@@ -1,0 +1,20 @@
+# Configuración local y secretos
+.env
+*.pem
+*-credentials.json
+
+# Artefactos de Go
+bin/
+*.exe
+*.test
+coverage.out
+coverage.html
+
+# IDE / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Entorno de Postman con credenciales locales (la plantilla example.* sí se versiona)
+postman/local.postman_environment.json

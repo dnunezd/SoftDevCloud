@@ -1,0 +1,6 @@
+# Finales de línea LF en todo el repositorio (gofmt, Makefile y scripts lo requieren),
+# también en Windows con core.autocrlf=true.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary

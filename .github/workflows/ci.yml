@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  test:
+    name: Pruebas unitarias
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Formato (gofmt)
+        run: test -z "$(gofmt -l .)"
+      - name: Análisis estático (go vet)
+        run: go vet ./...
+      - name: Mocks actualizados (mockery)
+        run: |
+          if grep -q 'vektra/mockery' go.mod; then
+            go tool mockery
+            test -z "$(git status --porcelain -- internal/mocks)" || { echo "Mocks desactualizados: ejecutar 'make mocks' y versionarlos"; git status --porcelain -- internal/mocks; exit 1; }
+          else
+            echo "mockery aún no está registrado como herramienta en go.mod; se omite"
+          fi
+      - name: Pruebas con cobertura
+        # -coverpkg atribuye la cobertura a todos los paquetes que ejecuta cada prueba
+        # (p. ej. handlers y middleware ejercitados desde las pruebas del router).
+        run: go test -race -covermode=atomic -coverpkg=./internal/... -coverprofile=coverage.out ./...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: backend/coverage.out
+
+  integration:
+    name: Pruebas de integración (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: seguimiento_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d seguimiento_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Repositorios contra PostgreSQL real
+        env:
+          TEST_DATABASE_URL: postgres://test:test@localhost:5432/seguimiento_test?sslmode=disable
+        run: go test -race -count=1 -tags=integration ./internal/adapters/outbound/postgres/...
+
+  sonar:
+    name: Calidad (SonarQube)
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    steps:
+      - name: Verificar configuración de SonarQube
+        if: env.SONAR_TOKEN == '' || env.SONAR_HOST_URL == ''
+        run: echo "::warning::Faltan los secretos SONAR_TOKEN y/o SONAR_HOST_URL en el repositorio; se omite el análisis."
+      - uses: actions/checkout@v4
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        with:
+          name: coverage
+          path: backend
+      - uses: SonarSource/sonarqube-scan-action@v5
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+
+  docker:
+    name: Construcción de imágenes
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build api y worker
+        run: |
+          docker build --target api -t seguimiento-api ./backend
+          docker build --target worker -t seguimiento-worker ./backend

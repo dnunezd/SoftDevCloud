@@ -1,0 +1,14 @@
+# Configuración de mockery v3: genera un mock (plantilla testify) por cada
+# interfaz de internal/ports en el paquete internal/mocks.
+# Instalación como herramienta del módulo (queda fijada en go.mod):
+#   go get -tool github.com/vektra/mockery/v3@latest
+# Ejecución: make mocks  (equivale a: go tool mockery)
+all: true
+dir: internal/mocks
+pkgname: mocks
+filename: "mock_{{.InterfaceName}}.go"
+structname: "{{.InterfaceName}}"
+template: testify
+force-file-write: true
+packages:
+  github.com/dnunezd/SoftDevCloud/backend/internal/ports: {}

@@ -37,6 +37,23 @@ var (
 	ErrLastAdmin          = &Error{Kind: KindConflict, Code: "last_admin", Message: "no se puede quitar el rol ADMIN al último administrador"}
 )
 
+// Errores de espacios, tareas y reportes.
+var (
+	ErrCreationWindowClosed = &Error{Kind: KindConflict, Code: "creation_window_closed", Message: "el período no admite crear cursos ni proyectos: está cerrado o venció su ventana de creación"}
+	ErrWorkspaceClosed      = &Error{Kind: KindConflict, Code: "workspace_closed", Message: "el curso o proyecto está cerrado y solo admite consulta"}
+	ErrTaskNotModifiable    = &Error{Kind: KindConflict, Code: "task_not_modifiable", Message: "la tarea solo se modifica o elimina durante su semana activa y no si es un reporte tardío"}
+	ErrInvalidReportState   = &Error{Kind: KindConflict, Code: "invalid_report_transition", Message: "transición de estado no permitida para el reporte"}
+)
+
+// Errores de las reglas de carga horaria (RN-14 a RN-19). Son validaciones
+// bloqueantes (RF-05.6): la API responde 422 e indica cuál regla se incumplió.
+var (
+	ErrGraduateHoursExceeded = &Error{Kind: KindValidation, Code: "graduate_hours_exceeded", Message: "la persona superaría las 22 horas semanales como asistente graduado"}
+	ErrMonitorCountExceeded  = &Error{Kind: KindValidation, Code: "monitor_count_exceeded", Message: "la persona superaría las 3 monitorías simultáneas"}
+	ErrMonitorHoursExceeded  = &Error{Kind: KindValidation, Code: "monitor_hours_exceeded", Message: "la persona superaría las 12 horas semanales como monitor"}
+	ErrMixedHoursExceeded    = &Error{Kind: KindValidation, Code: "mixed_hours_exceeded", Message: "las horas de monitoría superarían el 40 % de las horas como asistente graduado"}
+)
+
 // NewValidationError crea un error de validación con el detalle por campo.
 func NewValidationError(fields map[string]string) *Error {
 	return &Error{

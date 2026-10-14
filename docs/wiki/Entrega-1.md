@@ -30,7 +30,8 @@ Según `07-alcance.md`: backend construido conforme a la especificación, `Docke
 |---|---|---|---|
 | RF-01 Autenticación y acceso | Implementado, con sesiones por dispositivo (resuelve DT-03) | `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET/DELETE /admin/users/{id}/sessions`, middleware de autenticación y RBAC | Dominio, caso de uso, JWT/bcrypt, API e integración con PostgreSQL |
 | RF-02 Gestión de usuarios | Implementado | `POST/GET /admin/users`, `GET /admin/users/{id}`, `PUT /admin/users/{id}/roles` | Dominio, caso de uso, API e integración con PostgreSQL |
-| RF-03 a RF-08, RF-10 a RF-12, RF-14, RF-15 | Pendiente | — | — |
+| RF-03 a RF-08, RF-14 | En construcción: reglas de dominio y esquema de BD implementados (períodos, espacios, vinculaciones con carga horaria y rectificación, tareas y semanas, lotes y reportes); faltan casos de uso, repositorios y API | — | Dominio (pruebas unitarias) y migraciones `000003` a `000006` verificadas en PostgreSQL 17 |
+| RF-10 a RF-12, RF-15 | Pendiente | — | — |
 | RF-09, RF-13 | Fuera del alcance de E1 | — | — |
 
 ## Evidencia del despliegue funcional

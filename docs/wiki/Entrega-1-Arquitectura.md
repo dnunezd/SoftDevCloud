@@ -92,9 +92,11 @@ La especificación está en español y el código usa nombres en inglés, como e
 | Semana operativa | `Week` / `week_start` | De lunes a domingo; se identifica por la fecha del lunes |
 | Semana activa | — | La semana en curso según la hora actual; admite crear, editar y eliminar |
 | Reporte tardío | `is_late` | Tarea creada para una semana ya cerrada; no se puede modificar |
-| Sin reporte | derivado | Semana sin tareas para una vinculación; se calcula, no se almacena |
+| Sin reporte | derivado | Semana en la que una persona no registra ninguna tarea (RN-35); se calcula, no se almacena (RN-36) |
+| Adjunto | `TaskAttachment` / `task_attachments` | Archivo de evidencia asociado a una tarea; el contenido vive en `FileStorage` |
+| Rectificación | `AssignmentAudit` / `assignment_audit` | Registro del antes y el después de una corrección del administrador sobre una vinculación |
 | Lote de reportes | `ReportBatch` / `report_batches` | Solicitud de un profesor para generar los reportes de una semana |
-| Reporte semanal | `WeeklyReport` / `weekly_reports` | PDF individual generado con IA para una persona y una semana |
+| Reporte semanal | `WeeklyReport` / `weekly_reports` | PDF individual generado con IA para una persona y una semana, con los datos de los espacios del profesor que lo solicita |
 | Sesión | `Session` / `sessions` | Inicio de sesión en un dispositivo; su ID viaja en el token. Cerrar sesión la revoca sin afectar las demás sesiones del usuario |
 
 ---
@@ -331,6 +333,7 @@ erDiagram
     USERS ||--o{ ASSIGNMENTS : "es vinculado en"
     WORKSPACES ||--o{ ASSIGNMENTS : contiene
     ASSIGNMENTS ||--o{ ASSIGNMENT_AUDIT : "rectificaciones"
+    USERS ||--o{ ASSIGNMENT_AUDIT : "rectifica (admin)"
     ASSIGNMENTS ||--o{ TASKS : registra
     TASKS ||--o{ TASK_ATTACHMENTS : adjunta
     USERS ||--o{ REPORT_BATCHES : solicita
@@ -340,13 +343,13 @@ erDiagram
     USERS {
         uuid id PK
         text full_name
-        text email UK
+        text email UK "minusculas: CHECK email = lower(email)"
         text password_hash
         timestamptz created_at
         timestamptz updated_at
     }
     USER_ROLES {
-        uuid user_id PK,FK
+        uuid user_id PK,FK "ON DELETE CASCADE"
         text role PK "ADMIN|PROFESOR|MONITOR|ASISTENTE_GRADUADO"
     }
     SESSIONS {
@@ -360,7 +363,7 @@ erDiagram
     ACADEMIC_PERIODS {
         uuid id PK
         text code UK "2026-10"
-        date start_date
+        date start_date "CHECK start <= deadline <= end"
         date end_date
         date creation_deadline
         text status "ACTIVO|CERRADO"
@@ -371,18 +374,18 @@ erDiagram
         text name
         uuid period_id FK
         uuid professor_id FK
-        date start_date
+        date start_date "CHECK start <= end"
         date end_date
         text observations
         text status "ACTIVO|CERRADO"
-        timestamptz closed_at
+        timestamptz closed_at "NOT NULL si y solo si CERRADO"
     }
     ASSIGNMENTS {
         uuid id PK
-        uuid user_id FK
-        uuid workspace_id FK
+        uuid user_id FK,UK "UK compuesta con workspace_id"
+        uuid workspace_id FK,UK "UK compuesta con user_id"
         text role "MONITOR|ASISTENTE_GRADUADO"
-        int weekly_hours
+        int weekly_hours "CHECK > 0; AG <= 22; MONITOR <= 12"
         timestamptz created_at
     }
     ASSIGNMENT_AUDIT {
@@ -396,19 +399,19 @@ erDiagram
     TASKS {
         uuid id PK
         uuid assignment_id FK
-        date week_start "lunes"
+        date week_start "lunes (CHECK ISODOW = 1)"
         text title
         text description
         text status "ABIERTO|EN_DESARROLLO|FINALIZADO"
-        int hours_spent
+        int hours_spent "CHECK >= 0"
         text observations
-        bool is_late
+        bool is_late "se fija al crear"
         timestamptz created_at
         timestamptz updated_at
     }
     TASK_ATTACHMENTS {
         uuid id PK
-        uuid task_id FK
+        uuid task_id FK "ON DELETE CASCADE"
         text file_name
         text content_type
         bigint size_bytes
@@ -417,37 +420,241 @@ erDiagram
     REPORT_BATCHES {
         uuid id PK
         uuid professor_id FK
-        date week_start
-        text status
+        date week_start "lunes (CHECK ISODOW = 1)"
+        text status "EN_PROCESO|COMPLETADO|COMPLETADO_CON_ERRORES"
         timestamptz requested_at
     }
     WEEKLY_REPORTS {
         uuid id PK
-        uuid batch_id FK
-        uuid user_id FK
-        date week_start
+        uuid batch_id FK,UK "UK compuesta con user_id"
+        uuid user_id FK,UK "UK compuesta con batch_id"
+        date week_start "lunes (CHECK ISODOW = 1); igual a la del lote"
         text status "PENDIENTE|PROCESANDO|COMPLETADO|FALLIDO"
-        text storage_key
+        text storage_key "NOT NULL si COMPLETADO"
         text error
         timestamptz generated_at
     }
 ```
 
-**Figura 5.** Modelo entidad-relación de la Entrega 1.
+**Figura 5.** Modelo entidad-relación de la Entrega 1. Los comentarios de columna resumen las restricciones clave; `UK` en varias columnas de una misma tabla indica una restricción única compuesta. El detalle completo está en las decisiones del modelo.
 
 El modelo se centra en las **personas y sus vinculaciones** (RN-47), no en los proyectos. La vinculación (`ASSIGNMENTS`) es la entidad pivote: une a una persona con un curso o proyecto bajo un rol y unas horas contratadas, y es el punto del que cuelgan las tareas. Así, toda tarea pertenece a exactamente un espacio (RN-21), y las validaciones de carga horaria se calculan sumando las vinculaciones activas de una persona.
+
+### 5.1 Vista de dominio
+
+El paquete `internal/domain` expresa el mismo problema que el modelo de datos, pero en términos de comportamiento: qué agrupa cada concepto, qué invariantes protege y cuándo cambia de estado. No conoce tablas ni SQL; los repositorios traducen entre ambos mundos. Está implementado y probado en `internal/domain`; los casos de uso y los repositorios que lo usan se construyen módulo a módulo. El dominio no lee la hora del sistema: recibe el instante como parámetro (el `Clock` se inyecta en la capa de aplicación).
+
+```mermaid
+classDiagram
+    class User {
+        <<aggregate root>>
+        id
+        fullName
+        email
+        roles
+        createdAt
+        HasRole(role)
+    }
+    class AcademicPeriod {
+        <<aggregate root>>
+        id
+        code
+        startDate
+        endDate
+        creationDeadline
+        status
+        AcceptsWorkspaceCreation(hoy)
+    }
+    class Workspace {
+        <<aggregate root>>
+        id
+        periodId FK
+        professorId FK
+        type
+        name
+        startDate
+        endDate
+        observations
+        status
+        closedAt
+        Close(ahora)
+        IsWritable()
+    }
+    class Assignment {
+        <<aggregate root>>
+        id
+        userId FK
+        workspaceId FK
+        role
+        weeklyHours
+        createdAt
+        IsActive(workspace)
+        Rectify(cambios, admin, ahora)
+    }
+    class AssignmentAudit {
+        <<entity>>
+        id
+        assignmentId FK
+        adminId FK
+        before
+        after
+        changedAt
+    }
+    class Task {
+        <<aggregate root>>
+        id
+        assignmentId FK
+        weekStart
+        title
+        description
+        status
+        hoursSpent
+        observations
+        isLate
+        createdAt
+        updatedAt
+        NewTask(vinculacion, semana, datos, espacio, ahora)
+        CanModify(ahora, espacio)
+        Update(datos, ahora, espacio)
+    }
+    class TaskAttachment {
+        <<entity>>
+        id
+        taskId FK
+        fileName
+        contentType
+        sizeBytes
+        storageKey
+    }
+    class ReportBatch {
+        <<aggregate root>>
+        id
+        professorId FK
+        weekStart
+        status
+        requestedAt
+        RefreshStatus(reportes)
+    }
+    class WeeklyReport {
+        <<entity>>
+        id
+        batchId FK
+        userId FK
+        weekStart
+        status
+        storageKey
+        error
+        generatedAt
+        MarkProcessing()
+        MarkCompleted(storageKey, ahora)
+        MarkFailed(error)
+    }
+    class Week {
+        <<value object>>
+        monday
+        WeekContaining(instante, zona)
+        ParseWeek(fecha, zona)
+        IsActive(ahora)
+        IsClosed(ahora)
+    }
+    class Role {
+        <<value object>>
+        ADMIN
+        PROFESOR
+        MONITOR
+        ASISTENTE_GRADUADO
+    }
+    class TaskStatus {
+        <<value object>>
+        ABIERTO
+        EN_DESARROLLO
+        FINALIZADO
+    }
+    class WorkloadRule {
+        <<domain service>>
+        Validate(activas, candidata)
+    }
+
+    User "1" --> "*" Workspace : profesor responsable
+    AcademicPeriod "1" --> "*" Workspace : agrupa
+    Workspace "1" --> "*" Assignment : contiene
+    User "1" --> "*" Assignment : persona vinculada
+    Assignment "1" *-- "*" AssignmentAudit : rectificaciones
+    Assignment "1" --> "*" Task : registra
+    Task "1" *-- "*" TaskAttachment : adjunta
+    User "1" --> "*" ReportBatch : solicita
+    ReportBatch "1" *-- "*" WeeklyReport : produce
+    User "1" --> "*" WeeklyReport : sujeto del reporte
+    Task ..> Week
+    Task ..> TaskStatus
+    ReportBatch ..> Week
+    User ..> Role
+    Assignment ..> Role
+    Assignment ..> WorkloadRule : validada por
+```
+
+**Figura 5b.** Vista de dominio: agregados, entidades, value objects y servicio de dominio. La flecha con rombo (`*--`) indica pertenencia dentro del mismo agregado; la flecha simple, referencia por identificador a otro agregado. Los atributos marcados `FK` son esos identificadores y coinciden con las claves foráneas del modelo de datos (Figura 5).
+
+**Tabla 5b.** Agregados del dominio y su correspondencia con el modelo de datos.
+
+| Agregado (raíz) | Contiene | Tablas | Archivo en `domain/` |
+|---|---|---|---|
+| `User` | `Role` (value object) | `users`, `user_roles` | `user.go` |
+| `AcademicPeriod` | — | `academic_periods` | `period.go` |
+| `Workspace` | — | `workspaces` | `workspace.go` |
+| `Assignment` | `AssignmentAudit` | `assignments`, `assignment_audit` | `assignment.go` |
+| `Task` | `TaskAttachment`, `TaskStatus`, `Week` | `tasks`, `task_attachments` | `task.go`, `attachment.go`, `week.go` |
+| `ReportBatch` | `WeeklyReport` | `report_batches`, `weekly_reports` | `report.go` |
+| (servicio) `WorkloadRule` | — | — (opera sobre `assignments` activas) | `workload.go` |
+
+Los agregados se referencian entre sí **solo por identificador** (una tarea guarda el `id` de su vinculación, no la carga completa). Así, registrar una tarea no obliga a cargar todas las tareas de la vinculación ni todas las vinculaciones de la persona. `Task` es raíz de su propio agregado y no cuelga de `Assignment` por esa misma razón: una vinculación acumula tareas semana tras semana.
+
+**Tabla 5c.** Invariantes que protege cada concepto del dominio y su segunda línea de defensa en la base de datos.
+
+| Concepto | Invariante | Regla | Respaldo en BD |
+|---|---|---|---|
+| `User` | Un correo identifica a un único usuario; puede tener varios roles globales | RN-01, RF-01.3 | `UNIQUE lower(email)`, PK `(user_id, role)` |
+| `AcademicPeriod` | Solo acepta crear espacios si está `ACTIVO` y `hoy <= creationDeadline` | RN-07 | `CHECK` de fechas y estado |
+| `Workspace` | Es curso o proyecto; está activo o cerrado; cerrado es solo lectura y no admite tareas ni vinculaciones nuevas | RN-06, RN-08, RN-09 | `CHECK` de tipo y estado; `closed_at` coherente con `status` |
+| `Assignment` | Tiene rol de vinculación, espacio, persona y horas semanales `> 0` | RN-11 | `CHECK weekly_hours > 0` y tope por rol |
+| `Assignment` | Las horas contratadas son inmutables; solo el administrador las rectifica, dejando registro | RN-12, RF-04.5 | `assignment_audit` |
+| `Assignment` | Solo cuenta para los límites de horas mientras su espacio está activo | Hipótesis 1, RN-13 | — (se calcula) |
+| `Assignment` | Una persona tiene una vinculación por espacio | Hipótesis 3 | `UNIQUE (user_id, workspace_id)` |
+| `WorkloadRule` | 22 h de AG; 3 monitorías; 12 h de monitoría; monitoría `<= ⌈40 %⌉` de las horas de AG | RN-14 a RN-19 | Tope por rol (solo cota la vinculación individual) |
+| `Task` | Pertenece a una sola vinculación y su semana nunca cambia: continuar en otra semana exige una tarea nueva | RN-21, RN-26 | FK `assignment_id` |
+| `Task` | Estado dentro de un catálogo cerrado; horas enteras `>= 0` | RN-24, RN-27, RN-28 | `CHECK` de estado y de horas |
+| `Task` | `isLate` se fija al crear (semana ya cerrada) y no se recalcula | RN-32 | — |
+| `Task` | Solo se modifica o elimina si su semana está activa, no es tardía y su espacio está activo | RN-30, RN-33, RN-34, RN-09 | — |
+| `Task` | No se crean tareas en semanas futuras | Hipótesis 4 | — |
+| `Week` | Va de lunes a domingo y se identifica por su lunes | RN-29 | `CHECK ISODOW = 1` |
+| `TaskAttachment` | Pertenece a una tarea; el contenido vive fuera de la base de datos | RN-23 | FK con `ON DELETE CASCADE` |
+| `ReportBatch` | Lo solicita un profesor para una semana; su `status` se almacena y se recalcula a partir del estado de sus reportes (`RefreshStatus`) | RN-41, RN-44 | `CHECK` de estado y de lunes |
+| `WeeklyReport` | Su semana coincide con la de su lote (se copia al crear) | RN-44 | `CHECK` de lunes; la igualdad con el lote no la impone la BD |
+| `WeeklyReport` | Uno por persona en cada lote; solo pasa `PENDIENTE → PROCESANDO → COMPLETADO` o `FALLIDO`; `COMPLETADO` implica un PDF almacenado | RN-42, RN-45 | `UNIQUE (batch_id, user_id)`; `CHECK` de `storage_key` |
+
+**Estado derivado.** *Sin reporte* no es una entidad ni una columna: es el resultado de cruzar vinculaciones, semanas y tareas (RN-36). Queda fuera del alcance de E1, pero el dominio ya lo permite sin cambios.
+
+**Lo que no es dominio.** La visibilidad por relación (RN-03 a RN-05) es una política de la capa de aplicación (`app/access`), porque depende de quién consulta y no de la naturaleza del dato. La orquestación del lote de reportes (encolar, generar, almacenar) pertenece a `app/reports`; al dominio solo le corresponden los estados y sus transiciones.
 
 **Decisiones del modelo:**
 
 - **Profesor responsable de una vinculación** (RN-11): se obtiene del `professor_id` del curso o proyecto. No se duplica en `assignments`, para evitar inconsistencias.
-- **Semana**: se representa con `week_start DATE`, la fecha del lunes. Un `CHECK (EXTRACT(ISODOW FROM week_start) = 1)` garantiza que siempre sea lunes.
-- **Restricciones en BD como segunda línea de defensa**: `CHECK` sobre catálogos de estado y rol, `weekly_hours > 0`, `hours_spent >= 0` y `UNIQUE (user_id, workspace_id)`. La regla de negocio vive en el dominio; la BD evita datos corruptos si hay un error de programación.
+- **Semana**: se representa con `week_start DATE`, la fecha del lunes. Un `CHECK (EXTRACT(ISODOW FROM week_start) = 1)` garantiza que siempre sea lunes en `tasks`, `report_batches` y `weekly_reports`.
+- **Restricciones en BD como segunda línea de defensa**: la regla de negocio vive en el dominio; la BD evita datos corruptos si hay un error de programación.
+  - Catálogos: `CHECK` sobre `type`, `status` y `role` de todas las tablas, incluidos `report_batches.status` y `weekly_reports.status`.
+  - Horas: `weekly_hours > 0`, `hours_spent >= 0` y un tope por rol (`role = 'ASISTENTE_GRADUADO'` ⇒ `weekly_hours <= 22`; `role = 'MONITOR'` ⇒ `weekly_hours <= 12`). La suma de varias vinculaciones la valida el dominio, no la BD.
+  - Fechas: `start_date <= end_date` en espacios; `start_date <= creation_deadline <= end_date` en períodos.
+  - Cierre: `status = 'CERRADO'` ⇔ `closed_at IS NOT NULL` en espacios.
+  - Reportes: `status <> 'COMPLETADO' OR storage_key IS NOT NULL` en `weekly_reports`.
+  - Unicidad: `UNIQUE (user_id, workspace_id)` en `assignments` (hipótesis 3) y `UNIQUE (batch_id, user_id)` en `weekly_reports`.
 - **Estado *sin reporte*** (RF-09, fuera del alcance de E1): **no se almacena**. Se calcula cruzando vinculaciones y semanas contra `tasks`, como exige RN-36. El modelo ya lo soporta sin cambios.
 - **Archivos**: la BD solo guarda `storage_key`. El contenido está detrás de `FileStorage`, así que el esquema no cambia al migrar a GCS.
 - **Trazabilidad de rectificaciones**: `assignment_audit` registra el antes y el después de cada corrección del administrador (RF-04.5).
+- **Integridad referencial (`ON DELETE`)**: `task_attachments → tasks` en `CASCADE` (al eliminar una tarea se eliminan sus adjuntos y el caso de uso borra los archivos mediante `FileStorage`); `user_roles → users` y `sessions → users` en `CASCADE`; todas las demás relaciones en `RESTRICT`, porque no existe borrado de usuarios, espacios ni vinculaciones.
+- **Reportes por profesor**: `weekly_reports` no se vincula a una vinculación, pero su lote conserva `professor_id`. El generador usa ese dato para limitar los insumos a las tareas de los espacios de ese profesor (RN-03, ver Tabla 7).
 - **Sesiones** (`000002_create_sessions`): una fila por inicio de sesión, y el token lleva su ID. Cerrar sesión borra la fila. Las sesiones vencidas se borran al abrir una sesión nueva del mismo usuario y, para todo el sistema, al arrancar la API. Si se elimina un usuario, sus sesiones se borran en cascada.
-- **Índices previstos**: `tasks(assignment_id, week_start)`, `assignments(user_id)`, `workspaces(professor_id)` y `weekly_reports(batch_id)`. Implementado: `user_roles(role)`, para filtrar el listado de usuarios por rol.
-- **Migraciones incrementales**: el esquema no se crea de una vez. Cada módulo agrega su migración al implementarse; la primera es `000001_create_users` (RF-01, RF-02). Las migraciones van embebidas en el binario y se aplican al arrancar con un *advisory lock*, así que varias instancias pueden arrancar a la vez (E3).
+- **Índices**: `user_roles(role)` y `sessions(user_id)`, `sessions(expires_at)` para usuarios y sesiones; `workspaces(professor_id)`, `workspaces(period_id)`, `assignments(workspace_id)`, `assignment_audit(assignment_id)`, `tasks(assignment_id, week_start)`, `task_attachments(task_id)`, `report_batches(professor_id, week_start)` y `weekly_reports(user_id)` para el resto del modelo. Las consultas por `assignments(user_id)` y por `weekly_reports(batch_id)` las cubren los índices de sus restricciones `UNIQUE`.
+- **Migraciones**: el esquema crece por archivos numerados, embebidos en el binario y aplicados al arrancar con un *advisory lock*, así que varias instancias pueden arrancar a la vez (E3). `000001_create_users` y `000002_create_sessions` nacieron con RF-01 y RF-02. Las migraciones `000003` a `000006` (períodos y espacios, vinculaciones y auditoría, tareas y adjuntos, lotes y reportes) se adelantaron junto con el dominio para fijar el modelo completo antes de construir los casos de uso: esas tablas existen, pero ningún módulo las usa todavía.
 - **Correo único sin distinguir mayúsculas**: el dominio guarda el correo en minúsculas y la BD lo exige con `CHECK (email = lower(email))` y `UNIQUE (email)`.
 
 ---
@@ -461,12 +668,13 @@ La sección 13 de las reglas de negocio pide validaciones transaccionales, contr
 | Regla | Dónde vive | Cómo se garantiza |
 |---|---|---|
 | Carga horaria: 22 h AG; 3 monitorías / 12 h; 40 % con redondeo hacia arriba (RN-14 a RN-19) | `domain/workload.go` | Función pura sobre las vinculaciones activas + la candidata. Se invoca en `app/assignments` **dentro de una transacción con bloqueo de la persona** (`SELECT … FOR UPDATE` sobre `users`), para que dos profesores no puedan exceder el límite en paralelo |
-| Inmutabilidad de horas contratadas (RN-12) | `domain/assignment.go` | Sin operación de edición para profesor ni operativo. Solo `PATCH /admin/assignments/{id}`, que **re-valida la carga** excluyendo la vinculación editada y deja registro en `assignment_audit` |
+| Inmutabilidad de horas contratadas (RN-12) | `domain/assignment.go` | Sin operación de edición para profesor ni operativo. Solo `PATCH /admin/assignments/{id}`, que **re-valida la carga** excluyendo la vinculación editada, con el mismo bloqueo de la persona que la creación, y deja registro en `assignment_audit` |
 | Semana lun-dom, edición solo en semana activa, reporte tardío inmutable (RN-29 a RN-34) | `domain/week.go`, `domain/task.go` | `Clock` inyectado y zona horaria `APP_TIMEZONE`. `is_late` se calcula **al crear** y nunca se recalcula (ver Tabla 8) |
 | Espacio cerrado = solo lectura (RN-09) | `domain/workspace.go` | Los casos de uso de tareas y vinculaciones verifican el estado del espacio antes de escribir |
 | Creación de espacios solo en la ventana del período (RN-07) | `domain/period.go` | Período `ACTIVO` y `hoy <= creation_deadline` |
 | Visibilidad por rol y relación (RN-03 a RN-05) | `app/access` | Dos niveles: el middleware RBAC filtra por rol y la política de `access` filtra por relación (profesor ↔ espacio ↔ persona, dueño de la tarea) |
 | Insumos permitidos del reporte IA (RN-43, RN-46) | `app/reports/generator.go` | El contexto del prompt se arma solo con tareas, descripciones, observaciones y horas. El prompt pide una síntesis, no una evaluación |
+| Aislamiento de los reportes entre profesores (RN-03, RF-12.1) | `app/reports/generator.go`, consulta de lectura | La consulta de insumos filtra por `batch.professor_id`: solo entran tareas de vinculaciones en espacios de ese profesor, aunque la persona tenga vinculaciones con otros. Se prueba con una persona vinculada a dos profesores |
 
 ### 6.1 Validación transaccional al crear una vinculación
 
@@ -519,6 +727,7 @@ Las reglas temporales (RN-30 a RN-34) y la de espacios cerrados (RN-09) se combi
 | Futura | No (hipótesis 4) | — | — |
 | Cualquiera, con el espacio cerrado | No (RN-09) | No | No |
 
+
 ---
 
 ## 7. Flujo de procesamiento asíncrono: generación de reportes con IA
@@ -562,6 +771,8 @@ El flujo tiene dos mitades desacopladas por la cola. En la primera (pasos 1 a 5)
 - **Un trabajo por persona** en lugar de uno por lote: aísla fallos, permite reintentar individualmente y paralelizar con `WORKER_CONCURRENCY`, y coincide con el diseño exigido en E4 (*un mensaje de Pub/Sub por persona*).
 - **Idempotencia**: el ID de la tarea en Asynq es el `report_id`, y el generador no repite el trabajo si el reporte ya está `COMPLETADO`. Esto tolera reintentos y la entrega *at-least-once* de Pub/Sub en E4.
 - **Reintentos acotados** (p. ej. 3 con *backoff*). Después del último el reporte queda `FALLIDO` con el error registrado.
+- **Estado del lote**: `report_batches.status` pasa a `COMPLETADO` cuando todos sus reportes son `COMPLETADO`, y a `COMPLETADO_CON_ERRORES` cuando ninguno está pendiente y alguno es `FALLIDO`. Mientras haya reportes `PENDIENTE` o `PROCESANDO` queda en `EN_PROCESO`.
+- **Aislamiento entre profesores**: el generador solo lee las tareas de los espacios del profesor que creó el lote (Tabla 7).
 - **IA intercambiable**: `LLM_PROVIDER=fake` en desarrollo y CI (determinista, sin costo); `claude` para la demostración, con el modelo configurable por `LLM_MODEL`.
 
 ---
@@ -682,6 +893,7 @@ Toda la configuración se toma de variables de entorno; `.env.example` documenta
 | `JWT_SECRET`, `JWT_TTL` | secreto local (≥ 32 caracteres); duración de cada sesión y de su token: `8h` | E2+: el secreto se inyecta desde el entorno de despliegue, nunca desde el repositorio |
 | `BCRYPT_COST` | `10` | Ajustable según las pruebas de carga: cada punto duplica la CPU por inicio de sesión |
 | `APP_TIMEZONE` | `America/Bogota` | — |
+| `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` | datos del administrador inicial; se crea al arrancar si no existe ninguno (DT-05) | E2+: se inyectan desde el entorno de despliegue, con una contraseña propia |
 
 ---
 
@@ -780,6 +992,7 @@ Estos supuestos interpretan puntos que el enunciado no precisa. Deben validarse 
 11. El administrador crea los usuarios con una contraseña inicial y los roles se asignan reemplazando el conjunto completo (`PUT …/roles`). El reinicio de contraseñas está fuera del alcance de E1.
 12. No se puede quitar el rol ADMIN al último administrador del sistema.
 13. Cerrar sesión cierra solo la sesión del dispositivo desde el que se hace. El administrador puede cerrar todas las sesiones de un usuario; en E1 el usuario no gestiona sus otras sesiones.
+14. El **primer administrador** se crea al arrancar con las variables `BOOTSTRAP_ADMIN_*`, porque `POST /admin/users` ya exige ser administrador. No tiene endpoint público (DT-05).
 
 ## 17. Fuera del alcance de la Entrega 1
 

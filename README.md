@@ -10,7 +10,7 @@ Plataforma web ligera para que los profesores hagan seguimiento semanal del trab
 
 ## Estado
 
-**Entrega 1 en construcción.** Implementados: RF-01 (autenticación y control de acceso por rol) y RF-02 (gestión de usuarios). El avance por requerimiento está en la [página de la Entrega 1](docs/wiki/Entrega-1.md).
+**Entrega 1 en construcción.** Implementados: RF-01 (autenticación y control de acceso por rol) y RF-02 (gestión de usuarios). Además, las reglas de dominio y el esquema de base de datos de espacios, vinculaciones, tareas y reportes (RF-03 a RF-08, RF-14) ya están implementados y probados, aunque aún sin casos de uso ni endpoints. El avance por requerimiento está en la [página de la Entrega 1](docs/wiki/Entrega-1.md).
 
 ## Documentación
 

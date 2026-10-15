@@ -111,6 +111,23 @@ func TestWorkspace_Validate(t *testing.T) {
 	}
 }
 
+func TestAcademicPeriod_Close(t *testing.T) {
+	period := domain.AcademicPeriod{
+		Code:             "2026-10",
+		StartDate:        date(2026, time.February, 1),
+		EndDate:          date(2026, time.June, 15),
+		CreationDeadline: date(2026, time.February, 28),
+		Status:           domain.PeriodActive,
+	}
+	require.True(t, period.AcceptsWorkspaceCreation(at(2026, time.February, 10, 8, 0)))
+
+	require.NoError(t, period.Close())
+
+	assert.Equal(t, domain.PeriodClosed, period.Status)
+	assert.False(t, period.AcceptsWorkspaceCreation(at(2026, time.February, 10, 8, 0)), "RF-03.2: un período cerrado no admite crear espacios")
+	assert.ErrorIs(t, period.Close(), domain.ErrPeriodClosed, "no se cierra dos veces")
+}
+
 func TestWorkspace_Close(t *testing.T) {
 	now := at(2026, time.December, 5, 8, 0)
 	workspace := domain.Workspace{ID: "ws-1", Status: domain.WorkspaceActive}

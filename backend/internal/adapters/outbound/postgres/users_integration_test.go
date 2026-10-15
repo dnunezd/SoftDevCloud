@@ -29,7 +29,7 @@ func setupDB(t *testing.T) *pgxpool.Pool {
 	pool, err := postgres.NewPool(ctx, url)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	_, err = pool.Exec(ctx, "TRUNCATE users CASCADE")
+	_, err = pool.Exec(ctx, "TRUNCATE users, academic_periods CASCADE")
 	require.NoError(t, err)
 	return pool
 }

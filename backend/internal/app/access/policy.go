@@ -29,3 +29,15 @@ func (p Principal) HasRole(role domain.Role) bool {
 func (p Principal) HasAnyRole(roles ...domain.Role) bool {
 	return slices.ContainsFunc(roles, p.HasRole)
 }
+
+// CanViewWorkspace indica si la identidad puede consultar el curso o proyecto:
+// el administrador ve todos y el profesor solo los suyos (RF-12.1, RN-03, RN-05).
+func (p Principal) CanViewWorkspace(w domain.Workspace) bool {
+	return p.HasRole(domain.RoleAdmin) || p.CanManageWorkspace(w)
+}
+
+// CanManageWorkspace indica si la identidad es el profesor responsable del
+// curso o proyecto y, por tanto, puede operar sobre él (cerrarlo, vincular).
+func (p Principal) CanManageWorkspace(w domain.Workspace) bool {
+	return p.HasRole(domain.RoleProfessor) && w.ProfessorID == p.UserID
+}

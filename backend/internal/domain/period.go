@@ -49,6 +49,16 @@ func (p AcademicPeriod) Validate() error {
 	return nil
 }
 
+// Close cierra el período: deja de aceptar la creación de espacios (RF-03.2).
+// Cerrar un período ya cerrado es un error: el cierre no se repite.
+func (p *AcademicPeriod) Close() error {
+	if p.Status == PeriodClosed {
+		return ErrPeriodClosed
+	}
+	p.Status = PeriodClosed
+	return nil
+}
+
 // AcceptsWorkspaceCreation indica si hoy se pueden crear cursos o proyectos en
 // el período: debe estar ACTIVO y no haber pasado su fecha límite de creación
 // (RF-03.2, RN-07). today se interpreta como fecha de calendario.

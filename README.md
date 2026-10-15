@@ -10,7 +10,7 @@ Plataforma web ligera para que los profesores hagan seguimiento semanal del trab
 
 ## Estado
 
-**Entrega 1 en construcción.** Implementados: RF-01 (autenticación y control de acceso por rol) y RF-02 (gestión de usuarios). Además, las reglas de dominio y el esquema de base de datos de espacios, vinculaciones, tareas y reportes (RF-03 a RF-08, RF-14) ya están implementados y probados, aunque aún sin casos de uso ni endpoints. El avance por requerimiento está en la [página de la Entrega 1](docs/wiki/Entrega-1.md).
+**Entrega 1 en construcción.** Implementados: RF-01 (autenticación y control de acceso por rol), RF-02 (gestión de usuarios) y RF-03 (períodos académicos definidos por el administrador, y cursos y proyectos del profesor). Además, las reglas de dominio y el esquema de base de datos de vinculaciones, tareas y reportes (RF-04 a RF-08, RF-14) ya están implementados y probados, aunque aún sin casos de uso ni endpoints. El avance por requerimiento está en la [página de la Entrega 1](docs/wiki/Entrega-1.md).
 
 ## Documentación
 
@@ -69,7 +69,7 @@ curl -s -X POST http://localhost:8080/api/v1/auth/logout -H "Authorization: Bear
 ### Contrato de la API y Postman
 
 - **Contrato OpenAPI 3.0:** [`docs/api/openapi.yaml`](docs/api/openapi.yaml). Se puede importar en Postman, SwaggerHub o cualquier visor de OpenAPI.
-- **Colección de Postman:** [`postman/seguimiento-monitores.postman_collection.json`](postman/seguimiento-monitores.postman_collection.json). Está organizada en 6 carpetas, cada petición tiene sus pruebas, y los inicios de sesión guardan los tokens en variables.
+- **Colección de Postman:** [`postman/seguimiento-monitores.postman_collection.json`](postman/seguimiento-monitores.postman_collection.json). Está organizada en 7 carpetas, cada petición tiene sus pruebas, y los inicios de sesión guardan los tokens en variables.
 - **Entorno:** importa `postman/local.postman_environment.json` si existe en tu máquina (contiene credenciales y **no se versiona**). Si no, importa la plantilla `postman/example.postman_environment.json` y complétala con las cuentas de tu entorno local.
 
 Ejecutar la colección completa desde la terminal con Newman (requiere el sistema levantado):

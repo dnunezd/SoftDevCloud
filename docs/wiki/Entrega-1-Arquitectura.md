@@ -654,8 +654,9 @@ Los agregados se referencian entre sí **solo por identificador** (una tarea gua
 - **Reportes por profesor**: `weekly_reports` no se vincula a una vinculación, pero su lote conserva `professor_id`. El generador usa ese dato para limitar los insumos a las tareas de los espacios de ese profesor (RN-03, ver Tabla 7).
 - **Sesiones** (`000002_create_sessions`): una fila por inicio de sesión, y el token lleva su ID. Cerrar sesión borra la fila. Las sesiones vencidas se borran al abrir una sesión nueva del mismo usuario y, para todo el sistema, al arrancar la API. Si se elimina un usuario, sus sesiones se borran en cascada.
 - **Índices**: `user_roles(role)` y `sessions(user_id)`, `sessions(expires_at)` para usuarios y sesiones; `workspaces(professor_id)`, `workspaces(period_id)`, `assignments(workspace_id)`, `assignment_audit(assignment_id)`, `tasks(assignment_id, week_start)`, `task_attachments(task_id)`, `report_batches(professor_id, week_start)` y `weekly_reports(user_id)` para el resto del modelo. Las consultas por `assignments(user_id)` y por `weekly_reports(batch_id)` las cubren los índices de sus restricciones `UNIQUE`.
-- **Migraciones**: el esquema crece por archivos numerados, embebidos en el binario y aplicados al arrancar con un *advisory lock*, así que varias instancias pueden arrancar a la vez (E3). `000001_create_users` y `000002_create_sessions` nacieron con RF-01 y RF-02. Las migraciones `000003` a `000006` (períodos y espacios, vinculaciones y auditoría, tareas y adjuntos, lotes y reportes) se adelantaron junto con el dominio para fijar el modelo completo antes de construir los casos de uso: esas tablas existen, pero ningún módulo las usa todavía.
+- **Migraciones**: el esquema crece por archivos numerados, embebidos en el binario y aplicados al arrancar con un *advisory lock*, así que varias instancias pueden arrancar a la vez (E3). `000001_create_users` y `000002_create_sessions` nacieron con RF-01 y RF-02. Las migraciones `000003` a `000006` (períodos y espacios, vinculaciones y auditoría, tareas y adjuntos, lotes y reportes) se adelantaron junto con el dominio para fijar el modelo completo antes de construir los casos de uso: las de períodos y espacios ya las usan los módulos `periods` y `workspaces`; las demás existen, pero ningún módulo las usa todavía.
 - **Correo único sin distinguir mayúsculas**: el dominio guarda el correo en minúsculas y la BD lo exige con `CHECK (email = lower(email))` y `UNIQUE (email)`.
+- **Períodos y espacios (RF-03)**: solo el administrador crea y cierra períodos; un período nace `ACTIVO` y su cierre no se revierte. La ventana de creación es `ACTIVO` y `hoy <= creation_deadline`, con "hoy" calculado en la zona `APP_TIMEZONE` (no en UTC), de modo que el último día sigue abierto hasta las 23:59 locales. Cerrar un período no modifica los espacios ya creados. Los cierres (de período y de espacio) se escriben con un `UPDATE … WHERE status = 'ACTIVO'`, así dos cierres simultáneos no pisan la fecha de cierre original. El profesor ve y cierra solo sus espacios; el administrador los ve todos pero no los cierra. Un espacio ajeno responde `404`, igual que uno inexistente, para no revelar su existencia (RF-12.1).
 
 ---
 
@@ -850,11 +851,12 @@ El contrato detallado de los endpoints **ya implementados** está en `docs/api/o
 | GET | `/admin/users/{id}/sessions` | ADMIN | RF-15 (sesiones activas del usuario) |
 | DELETE | `/admin/users/{id}/sessions` | ADMIN | RF-15 (cierra todas sus sesiones) |
 | POST | `/admin/periods` | ADMIN | RF-03.2 |
-| PATCH | `/admin/periods/{id}` | ADMIN | RF-03.2 |
-| GET | `/periods` | autenticado | RF-03.2 |
+| POST | `/admin/periods/{id}/close` | ADMIN | RF-03.2 |
+| GET | `/periods` | PROFESOR, ADMIN | RF-03.2 |
+| GET | `/periods/{id}` | PROFESOR, ADMIN | RF-03.2 |
 | PATCH | `/admin/assignments/{id}` | ADMIN | RF-04.5, RF-15.3 |
 | POST | `/workspaces` | PROFESOR | RF-03.1, RF-03.3 |
-| GET | `/workspaces?status=` | PROFESOR, ADMIN | RF-03.4, RF-03.6 |
+| GET | `/workspaces?period_id=&status=` | PROFESOR, ADMIN | RF-03.4, RF-03.6 |
 | GET | `/workspaces/{id}` | PROFESOR, ADMIN | RF-03.6 |
 | POST | `/workspaces/{id}/close` | PROFESOR | RF-03.5 |
 | POST | `/workspaces/{id}/assignments` | PROFESOR | RF-04.1 a RF-04.3, RF-05 |

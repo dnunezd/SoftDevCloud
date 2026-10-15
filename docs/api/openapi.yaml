@@ -25,6 +25,10 @@ tags:
     description: Gestión de usuarios.
   - name: Sesiones
     description: Gestión de sesiones de usuarios.
+  - name: Períodos
+    description: Períodos académicos. El administrador los define y cierra; los profesores los consultan.
+  - name: Cursos y proyectos
+    description: Espacios de trabajo del profesor, creados dentro de un período académico.
 security:
   - bearerAuth: []
 
@@ -320,6 +324,305 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/admin/periods:
+    post:
+      tags: [Períodos]
+      operationId: createPeriod
+      summary: Crear período académico
+      description: |
+        Requiere rol ADMIN. El período nace ACTIVO. Los profesores solo pueden
+        crear cursos y proyectos mientras el período esté activo y la fecha de
+        hoy (zona `APP_TIMEZONE`) no supere `creation_deadline`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePeriodRequest"
+            example:
+              code: 2026-10
+              start_date: "2026-02-01"
+              end_date: "2026-06-15"
+              creation_deadline: "2026-02-28"
+      responses:
+        "201":
+          description: Período creado.
+          headers:
+            Location:
+              description: Ruta del período creado.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Period"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Ya existe un período con ese código.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: period_code_already_exists
+                  message: ya existe un período con ese código
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/periods/{id}/close:
+    parameters:
+      - $ref: "#/components/parameters/PeriodId"
+    post:
+      tags: [Períodos]
+      operationId: closePeriod
+      summary: Cerrar período académico
+      description: |
+        Requiere rol ADMIN. Un período cerrado deja de admitir la creación de
+        cursos y proyectos; los espacios ya creados no cambian. El cierre no se revierte.
+      responses:
+        "200":
+          description: Período cerrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Period"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/PeriodNotFound"
+        "409":
+          description: El período ya estaba cerrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: period_closed
+                  message: el período académico ya está cerrado
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/periods:
+    get:
+      tags: [Períodos]
+      operationId: listPeriods
+      summary: Listar períodos académicos
+      description: Requiere rol PROFESOR o ADMIN. Del período que inicia más tarde al más antiguo.
+      responses:
+        "200":
+          description: Períodos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeriodList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/periods/{id}:
+    parameters:
+      - $ref: "#/components/parameters/PeriodId"
+    get:
+      tags: [Períodos]
+      operationId: getPeriod
+      summary: Consultar período académico
+      description: Requiere rol PROFESOR o ADMIN.
+      responses:
+        "200":
+          description: Período.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Period"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/PeriodNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/workspaces:
+    post:
+      tags: [Cursos y proyectos]
+      operationId: createWorkspace
+      summary: Crear curso o proyecto
+      description: |
+        Requiere rol PROFESOR; el profesor autenticado queda como responsable.
+        Solo se permite dentro de un período activo y de su ventana de creación.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceRequest"
+            example:
+              type: CURSO
+              name: Arquitectura de Software
+              period_id: 5d6e7f80-91a2-4bce-8f30-4b5c6d7e8f90
+              start_date: "2026-02-02"
+              end_date: "2026-06-12"
+              observations: Grupo nocturno
+      responses:
+        "201":
+          description: Curso o proyecto creado.
+          headers:
+            Location:
+              description: Ruta del espacio creado.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: El período está cerrado o su ventana de creación venció.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: creation_window_closed
+                  message: "el período no admite crear cursos ni proyectos: está cerrado o venció su ventana de creación"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      tags: [Cursos y proyectos]
+      operationId: listWorkspaces
+      summary: Listar cursos y proyectos
+      description: |
+        Requiere rol PROFESOR o ADMIN. El profesor ve solo los suyos; el
+        administrador ve todos. Incluye los cerrados, que se consultan en modo
+        de solo lectura. Del que inicia más tarde al más antiguo.
+      parameters:
+        - name: period_id
+          in: query
+          description: Filtra por período.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Filtra por estado.
+          schema:
+            $ref: "#/components/schemas/WorkspaceStatus"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Página de cursos y proyectos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/workspaces/{id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Cursos y proyectos]
+      operationId: getWorkspace
+      summary: Consultar curso o proyecto
+      description: |
+        Requiere rol PROFESOR o ADMIN. Un profesor que no es el responsable
+        recibe 404, igual que si el espacio no existiera.
+      responses:
+        "200":
+          description: Curso o proyecto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/WorkspaceNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/workspaces/{id}/close:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    post:
+      tags: [Cursos y proyectos]
+      operationId: closeWorkspace
+      summary: Cerrar curso o proyecto
+      description: |
+        Requiere ser el profesor responsable. Un espacio cerrado queda en modo
+        de solo lectura: no admite nuevos registros operativos. El cierre no se revierte.
+      responses:
+        "200":
+          description: Curso o proyecto cerrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/WorkspaceNotFound"
+        "409":
+          description: El espacio ya estaba cerrado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: workspace_closed
+                  message: el curso o proyecto está cerrado y solo admite consulta
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -329,6 +632,20 @@ components:
 
   parameters:
     UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PeriodId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WorkspaceId:
       name: id
       in: path
       required: true
@@ -479,6 +796,138 @@ components:
         revoked:
           type: integer
 
+    PeriodStatus:
+      type: string
+      enum: [ACTIVO, CERRADO]
+
+    CreatePeriodRequest:
+      type: object
+      required: [code, start_date, end_date, creation_deadline]
+      properties:
+        code:
+          type: string
+          description: Identificación del período, único.
+          example: 2026-10
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+          description: No puede ser anterior a la fecha de inicio.
+        creation_deadline:
+          type: string
+          format: date
+          description: Último día, inclusive, en que se pueden crear cursos y proyectos. Debe estar entre el inicio y el cierre.
+
+    Period:
+      type: object
+      required: [id, code, start_date, end_date, creation_deadline, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: 2026-10
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        creation_deadline:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/PeriodStatus"
+
+    PeriodList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Period"
+
+    WorkspaceType:
+      type: string
+      enum: [CURSO, PROYECTO]
+
+    WorkspaceStatus:
+      type: string
+      enum: [ACTIVO, CERRADO]
+
+    CreateWorkspaceRequest:
+      type: object
+      required: [type, name, period_id, start_date, end_date]
+      properties:
+        type:
+          $ref: "#/components/schemas/WorkspaceType"
+        name:
+          type: string
+        period_id:
+          type: string
+          format: uuid
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+          description: No puede ser anterior a la fecha de inicio.
+        observations:
+          type: string
+
+    Workspace:
+      type: object
+      required: [id, type, name, period_id, professor_id, start_date, end_date, observations, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/WorkspaceType"
+        name:
+          type: string
+        period_id:
+          type: string
+          format: uuid
+        professor_id:
+          type: string
+          format: uuid
+          description: Profesor responsable.
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        observations:
+          type: string
+        status:
+          $ref: "#/components/schemas/WorkspaceStatus"
+        closed_at:
+          type: string
+          format: date-time
+          description: Solo aparece cuando el espacio está cerrado.
+
+    WorkspaceList:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Workspace"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
     Error:
       type: object
       required: [error]
@@ -546,6 +995,26 @@ components:
             error:
               code: user_not_found
               message: el usuario no existe
+    PeriodNotFound:
+      description: Período no encontrado.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: period_not_found
+              message: el período académico no existe
+    WorkspaceNotFound:
+      description: Curso o proyecto no encontrado, o que el solicitante no puede ver.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: workspace_not_found
+              message: el curso o proyecto no existe
     ValidationFailed:
       description: Datos inválidos.
       content:

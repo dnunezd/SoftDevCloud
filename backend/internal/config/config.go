@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	_ "time/tzdata" // zonas horarias embebidas: APP_TIMEZONE funciona aunque la imagen no traiga tzdata
 )
 
 // Límites aceptados para BCRYPT_COST (los de golang.org/x/crypto/bcrypt).
@@ -23,8 +24,12 @@ const (
 
 // Config es la configuración del proceso.
 type Config struct {
-	Env         string
-	Port        string
+	Env  string
+	Port string
+	// Location es la zona horaria académica (APP_TIMEZONE): define qué día es
+	// "hoy" para la ventana de creación de espacios y, desde la Entrega 1, el
+	// corte semanal de lunes a domingo.
+	Location    *time.Location
 	LogLevel    slog.Level
 	DatabaseURL string
 	AutoMigrate bool
@@ -56,6 +61,12 @@ func Load() (Config, error) {
 			Password: os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"),
 		},
 	}
+
+	location, err := time.LoadLocation(getenv("APP_TIMEZONE", "America/Bogota"))
+	if err != nil {
+		errs = append(errs, fmt.Errorf("APP_TIMEZONE: %w", err))
+	}
+	cfg.Location = location
 
 	if err := cfg.LogLevel.UnmarshalText([]byte(getenv("LOG_LEVEL", "info"))); err != nil {
 		errs = append(errs, fmt.Errorf("LOG_LEVEL: %w", err))

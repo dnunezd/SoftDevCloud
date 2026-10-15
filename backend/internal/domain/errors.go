@@ -37,6 +37,14 @@ var (
 	ErrLastAdmin          = &Error{Kind: KindConflict, Code: "last_admin", Message: "no se puede quitar el rol ADMIN al último administrador"}
 )
 
+// Errores de períodos y espacios.
+var (
+	ErrPeriodNotFound    = &Error{Kind: KindNotFound, Code: "period_not_found", Message: "el período académico no existe"}
+	ErrPeriodCodeExists  = &Error{Kind: KindConflict, Code: "period_code_already_exists", Message: "ya existe un período con ese código"}
+	ErrPeriodClosed      = &Error{Kind: KindConflict, Code: "period_closed", Message: "el período académico ya está cerrado"}
+	ErrWorkspaceNotFound = &Error{Kind: KindNotFound, Code: "workspace_not_found", Message: "el curso o proyecto no existe"}
+)
+
 // Errores de espacios, tareas y reportes.
 var (
 	ErrCreationWindowClosed = &Error{Kind: KindConflict, Code: "creation_window_closed", Message: "el período no admite crear cursos ni proyectos: está cerrado o venció su ventana de creación"}

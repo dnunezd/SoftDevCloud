@@ -19,7 +19,9 @@ import (
 	"github.com/dnunezd/SoftDevCloud/backend/internal/adapters/outbound/postgres"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/adapters/outbound/security"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/app/auth"
+	"github.com/dnunezd/SoftDevCloud/backend/internal/app/periods"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/app/users"
+	"github.com/dnunezd/SoftDevCloud/backend/internal/app/workspaces"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/config"
 )
 
@@ -64,8 +66,13 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger, pool *pg
 	systemClock := clock.System{}
 	tokens := security.NewJWTService(cfg.JWTSecret, systemClock.Now)
 
+	periodRepo := postgres.NewPeriodRepository(pool)
+	workspaceRepo := postgres.NewWorkspaceRepository(pool)
+
 	authService := auth.NewService(userRepo, sessionRepo, hasher, tokens, systemClock, cfg.JWTTTL)
 	userService := users.NewService(userRepo, hasher)
+	periodService := periods.NewService(periodRepo)
+	workspaceService := workspaces.NewService(workspaceRepo, periodRepo, systemClock, cfg.Location)
 
 	if err := ensureAdmin(ctx, cfg.Admin, userService, logger); err != nil {
 		return nil, err
@@ -82,9 +89,11 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger, pool *pg
 		gin.SetMode(gin.ReleaseMode)
 	}
 	router, err := rest.NewRouter(rest.Dependencies{
-		Auth:   authService,
-		Users:  userService,
-		Logger: logger,
+		Auth:       authService,
+		Users:      userService,
+		Periods:    periodService,
+		Workspaces: workspaceService,
+		Logger:     logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("construir router: %w", err)

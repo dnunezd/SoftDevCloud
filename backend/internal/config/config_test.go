@@ -16,7 +16,7 @@ func setValidEnv(t *testing.T) {
 	t.Setenv("JWT_SECRET", "clave-de-pruebas-de-al-menos-32-caracteres")
 	t.Setenv("BOOTSTRAP_ADMIN_EMAIL", "")
 	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "")
-	for _, key := range []string{"APP_ENV", "PORT", "LOG_LEVEL", "DB_AUTO_MIGRATE", "JWT_TTL", "BCRYPT_COST"} {
+	for _, key := range []string{"APP_ENV", "PORT", "LOG_LEVEL", "DB_AUTO_MIGRATE", "JWT_TTL", "BCRYPT_COST", "APP_TIMEZONE"} {
 		t.Setenv(key, "")
 	}
 }
@@ -33,6 +33,39 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	assert.True(t, cfg.AutoMigrate)
 	assert.Equal(t, 8*time.Hour, cfg.JWTTTL)
 	assert.Equal(t, 10, cfg.BcryptCost)
+}
+
+// DT-08: la zona horaria académica se carga y se valida al arrancar.
+func TestLoad_TimeZone(t *testing.T) {
+	t.Run("por defecto America/Bogota", func(t *testing.T) {
+		setValidEnv(t)
+		t.Setenv("APP_TIMEZONE", "")
+
+		cfg, err := config.Load()
+
+		require.NoError(t, err)
+		assert.Equal(t, "America/Bogota", cfg.Location.String())
+	})
+
+	t.Run("se puede cambiar", func(t *testing.T) {
+		setValidEnv(t)
+		t.Setenv("APP_TIMEZONE", "UTC")
+
+		cfg, err := config.Load()
+
+		require.NoError(t, err)
+		assert.Equal(t, "UTC", cfg.Location.String())
+	})
+
+	t.Run("una zona inexistente impide arrancar", func(t *testing.T) {
+		setValidEnv(t)
+		t.Setenv("APP_TIMEZONE", "Marte/Olympus")
+
+		_, err := config.Load()
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "APP_TIMEZONE")
+	})
 }
 
 func TestLoad_ReadsOverrides(t *testing.T) {

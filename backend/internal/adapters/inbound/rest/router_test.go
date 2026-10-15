@@ -23,18 +23,30 @@ import (
 	"github.com/dnunezd/SoftDevCloud/backend/internal/adapters/outbound/clock"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/adapters/outbound/security"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/app/auth"
+	"github.com/dnunezd/SoftDevCloud/backend/internal/app/periods"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/app/users"
+	"github.com/dnunezd/SoftDevCloud/backend/internal/app/workspaces"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/domain"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/mocks"
 	"github.com/dnunezd/SoftDevCloud/backend/internal/ports"
 )
 
 const (
-	adminID   = "0b7c1c52-6a0e-4b63-8f0a-5a5f3b2d1c01"
-	monitorID = "1d2e3f40-5a6b-4c7d-8e9f-a0b1c2d3e4f5"
-	betoID    = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d"
-	userAgent = "pruebas/1.0"
+	adminID     = "0b7c1c52-6a0e-4b63-8f0a-5a5f3b2d1c01"
+	monitorID   = "1d2e3f40-5a6b-4c7d-8e9f-a0b1c2d3e4f5"
+	betoID      = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d"
+	profID      = "3b4c5d6e-7f80-4b9c-8d1e-2f3a4b5c6d7e"
+	otherProfID = "4c5d6e7f-8091-4cad-9e2f-3a4b5c6d7e8f"
+	userAgent   = "pruebas/1.0"
 )
+
+// fixedClock fija la hora del caso de uso de espacios: 10 de febrero de 2026,
+// dentro de la ventana de creación del período de las pruebas.
+type fixedClock struct{ t time.Time }
+
+func (c fixedClock) Now() time.Time { return c.t }
+
+var testNow = time.Date(2026, time.February, 10, 12, 0, 0, 0, time.UTC)
 
 // device es una sesión abierta por un usuario en un dispositivo.
 type device struct{ userID, sessionID string }
@@ -44,31 +56,41 @@ var (
 	anaLaptop   = device{monitorID, "a0000000-0000-4000-8000-000000000002"}
 	anaPhone    = device{monitorID, "a0000000-0000-4000-8000-000000000003"}
 	betoLaptop  = device{betoID, "a0000000-0000-4000-8000-000000000004"}
+	profLaptop  = device{profID, "a0000000-0000-4000-8000-000000000005"}
+	otherProf   = device{otherProfID, "a0000000-0000-4000-8000-000000000006"}
 )
 
 // testAPI levanta el router real con los casos de uso reales; solo los
 // repositorios están simulados. bcrypt y JWT son los adaptadores reales.
 type testAPI struct {
-	router   http.Handler
-	repo     *mocks.UserRepository
-	sessions *mocks.SessionRepository
-	hasher   *security.BcryptHasher
-	tokens   *security.JWTService
+	router     http.Handler
+	repo       *mocks.UserRepository
+	sessions   *mocks.SessionRepository
+	periods    *mocks.PeriodRepository
+	workspaces *mocks.WorkspaceRepository
+	hasher     *security.BcryptHasher
+	tokens     *security.JWTService
 }
 
 func newTestAPI(t *testing.T) testAPI {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	api := testAPI{
-		repo:     mocks.NewUserRepository(t),
-		sessions: mocks.NewSessionRepository(t),
-		hasher:   security.NewBcryptHasher(bcrypt.MinCost),
-		tokens:   security.NewJWTService("clave-de-pruebas-de-al-menos-32-caracteres", time.Now),
+		repo:       mocks.NewUserRepository(t),
+		sessions:   mocks.NewSessionRepository(t),
+		periods:    mocks.NewPeriodRepository(t),
+		workspaces: mocks.NewWorkspaceRepository(t),
+		hasher:     security.NewBcryptHasher(bcrypt.MinCost),
+		tokens:     security.NewJWTService("clave-de-pruebas-de-al-menos-32-caracteres", time.Now),
 	}
+	bogota, err := time.LoadLocation("America/Bogota")
+	require.NoError(t, err)
 	router, err := rest.NewRouter(rest.Dependencies{
-		Auth:   auth.NewService(api.repo, api.sessions, api.hasher, api.tokens, clock.System{}, time.Hour),
-		Users:  users.NewService(api.repo, api.hasher),
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Auth:       auth.NewService(api.repo, api.sessions, api.hasher, api.tokens, clock.System{}, time.Hour),
+		Users:      users.NewService(api.repo, api.hasher),
+		Periods:    periods.NewService(api.periods),
+		Workspaces: workspaces.NewService(api.workspaces, api.periods, fixedClock{testNow}, bogota),
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	require.NoError(t, err)
 	api.router = router

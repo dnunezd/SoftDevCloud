@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/dnunezd/SoftDevCloud/backend/internal/domain"
 )
@@ -44,6 +45,49 @@ type SessionRepository interface {
 	RevokeAll(ctx context.Context, userID string) (int, error)
 	// DeleteExpired borra las sesiones vencidas de todos los usuarios.
 	DeleteExpired(ctx context.Context) (int, error)
+}
+
+// PeriodRepository persiste los períodos académicos (RF-03.2).
+//
+// Errores esperados: domain.ErrPeriodNotFound, domain.ErrPeriodCodeExists y
+// domain.ErrPeriodClosed.
+type PeriodRepository interface {
+	// Create guarda el período y lo devuelve con su ID.
+	Create(ctx context.Context, period domain.AcademicPeriod) (domain.AcademicPeriod, error)
+	GetByID(ctx context.Context, id string) (domain.AcademicPeriod, error)
+	// List devuelve todos los períodos, del que inicia más tarde al más antiguo.
+	List(ctx context.Context) ([]domain.AcademicPeriod, error)
+	// MarkClosed cierra el período de forma atómica: si ya estaba cerrado
+	// devuelve domain.ErrPeriodClosed.
+	MarkClosed(ctx context.Context, id string) error
+}
+
+// WorkspaceRepository persiste los cursos y proyectos (RF-03).
+//
+// Errores esperados: domain.ErrWorkspaceNotFound y domain.ErrWorkspaceClosed.
+type WorkspaceRepository interface {
+	// Create guarda el espacio y lo devuelve con su ID.
+	Create(ctx context.Context, workspace domain.Workspace) (domain.Workspace, error)
+	GetByID(ctx context.Context, id string) (domain.Workspace, error)
+	List(ctx context.Context, filter WorkspaceFilter) (WorkspacePage, error)
+	// MarkClosed cierra el espacio de forma atómica y registra cuándo: si ya
+	// estaba cerrado devuelve domain.ErrWorkspaceClosed y no cambia su fecha de cierre.
+	MarkClosed(ctx context.Context, id string, closedAt time.Time) error
+}
+
+// WorkspaceFilter delimita una consulta de espacios. Los campos vacíos no filtran.
+type WorkspaceFilter struct {
+	ProfessorID string
+	PeriodID    string
+	Status      domain.WorkspaceStatus
+	Limit       int
+	Offset      int
+}
+
+// WorkspacePage es una página de espacios con el total de coincidencias.
+type WorkspacePage struct {
+	Workspaces []domain.Workspace
+	Total      int
 }
 
 // UserFilter delimita una consulta de usuarios.
